@@ -31,13 +31,30 @@ inputs:
     default: "eclipse-temurin"
   JIB_VERSION:
     required: true
-    default: "3.3.0"
+    default: "3.4.0"
+  MAVEN_JIB_PORT:
+    required: false
+    default: "80"
+  MAVEN_JIB_MAINCLASS:
+    required: false
+    default: "main"
   BUILD_ARGS:
     required: false
     default: ""
   SKIP_TESTS:
     required: false
     default: "false"
+#   FROM_IMAGE:
+#     required: false
+#     default: "${JIB_JAVA_BASE}:${JAVA_VERSION}"
+# #    default: "${{ inputs.JIB_JAVA_BASE }}:${{ inputs.JAVA_VERSION }}"
+#   TO_IMAGE:
+#     required: false
+#     default: "${APP}-${SERVICE}-${INSTANCE}"
+#  #   default: "${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}"
+  RUN_BEFORE_BUILD:
+    required: false
+    default: "echo \"nothing to run\""
 
 runs:
   using: "composite"
@@ -57,9 +74,22 @@ runs:
       uses: actions/checkout@v3
 
 
+    - uses: actions/checkout@v2
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ inputs.AWS_ACCESS }}
+        aws-secret-access-key: ${{ inputs.AWS_SECRET }}
+        aws-region: ${{ inputs.AWS_ZONE }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
     - name: Docker meta
       id: meta
-      uses: docker/metadata-action@v3
+      uses: docker/metadata-action@v5
       with:
         images: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.PROJECT }}-${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}
         flavor: |
@@ -73,29 +103,54 @@ runs:
           type=raw,value={{date 'YYYYMMDD'}}
           type=sha
 
+
     - name: prepare tags for mvn (comma sep)
       id: tags_for_mvn
       shell: bash
       run: |
           export IMAGE_WITH_TAGS="${{ steps.meta.outputs.tags }}"
-          export REMOVE_THIS="${{ inputs.PROJECT }}.${{ inputs.DOCKER_REPOSITORY_BASE }}/${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}:"
+          export REMOVE_THIS="${{ steps.login-ecr.outputs.registry }}/${{ inputs.PROJECT }}-${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}:"
           export RESULT=$(sed -r "s|${REMOVE_THIS}||g" <<< "${IMAGE_WITH_TAGS}")
           echo $RESULT
           export RESULT2=$(sed -r 's/\s+/,/g' <<< `echo $RESULT`)
           echo $RESULT2
           echo "tags=${RESULT2}" >> $GITHUB_OUTPUT
-    - uses: actions/checkout@v2
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ inputs.AWS_ACCESS }}
-        aws-secret-access-key: ${{ inputs.AWS_SECRET }}
-        aws-region: ${{ inputs.AWS_ZONE }}
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+    - name: send info to summary
+      id: echo2summary
+      shell: bash
+      run: |
+          echo ''  >> $GITHUB_STEP_SUMMARY
+          echo ":rocket: action docker mvn in aws :rocket:"  >>  $GITHUB_STEP_SUMMARY
+          echo ''  >> $GITHUB_STEP_SUMMARY
+          echo '| Variable | Value |'                        >> $GITHUB_STEP_SUMMARY
+          echo '| :---: | :---: | '                          >> $GITHUB_STEP_SUMMARY
+          echo '| ref | ${{ github.ref }} | '                >> $GITHUB_STEP_SUMMARY
+          echo '| ENV_GROUP | ${{ inputs.PROJECT }}-${{ inputs.DEPLOY_TARGET }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| PROJECT | ${{ inputs.PROJECT }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| APP | ${{ inputs.APP }} | '   >> $GITHUB_STEP_SUMMARY
+          echo '| SERVICE | ${{ inputs.SERVICE }} | '   >> $GITHUB_STEP_SUMMARY
+          echo '| INSTANCE | ${{ inputs.INSTANCE }} | '   >> $GITHUB_STEP_SUMMARY
+          echo '| BRANCH | ${{ github.ref_name }} | ' >> $GITHUB_STEP_SUMMARY
+          echo '| DEPLOY_TARGET | ${{ inputs.DEPLOY_TARGET }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| AWS_ACCESS | ${{ inputs.AWS_ACCESS }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| AWS_ZONE | ${{ inputs.AWS_ZONE }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| QEMU_SETUP | ${{ inputs.QEMU_SETUP }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| JAVA_VERSION | ${{ inputs.JAVA_VERSION }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| JAVA_DISTRIBUTION | ${{ inputs.JAVA_DISTRIBUTION }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| JIB_JAVA_BASE | ${{ inputs.JIB_JAVA_BASE }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| JIB_VERSION | ${{ inputs.JIB_VERSION }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| MAVEN_JIB_PORT | ${{ inputs.MAVEN_JIB_PORT }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| MAVEN_JIB_MAINCLASS | ${{ inputs.MAVEN_JIB_MAINCLASS }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| BUILD_ARGS | ${{ inputs.BUILD_ARGS }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| SKIP_TESTS | ${{ inputs.SKIP_TESTS }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| FROM_IMAGE | ${{ inputs.JIB_JAVA_BASE }}:${{ inputs.JAVA_VERSION }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| TO_IMAGE | ${{ steps.login-ecr.outputs.registry }}/${{ inputs.PROJECT }}-${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| RUN_BEFORE_BUILD | ${{ inputs.RUN_BEFORE_BUILD }} | '           >> $GITHUB_STEP_SUMMARY
+          echo '| TAGS | ${{ steps.tags_for_mvn.outputs.tags }} | '           >> $GITHUB_STEP_SUMMARY
+
+
 
 
     - uses: actions/setup-java@v3
@@ -112,13 +167,24 @@ runs:
           ${{ runner.OS }}-mvn-
           ${{ runner.OS }}-
 
+    - name: run before build
+      id: ren-before-build
+      shell: bash
+      run: |
+        ${{ inputs.RUN_BEFORE_BUILD }}  || true
+
     - name: Jib build
       shell: bash
       run: |
         mvn -B -e compile -Dmaven.test.skip=${{ inputs.SKIP_TESTS }} \
             com.google.cloud.tools:jib-maven-plugin:${{ inputs.JIB_VERSION }}:build \
             -Djib.from.image=${{ inputs.JIB_JAVA_BASE }}:${{ inputs.JAVA_VERSION }}  \
-            -Djib.to.image=${{ inputs.PROJECT }}.${{ inputs.DOCKER_REPOSITORY_BASE }}/${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}  \
             -Djib.container.creationTime=USE_CURRENT_TIMESTAMP \
+            -Djib.container.mainClass=${{ inputs.MAVEN_JIB_MAINCLASS }} \
+            -Djib.container.ports=${{ inputs.MAVEN_JIB_PORT }} \
+            -Djib.to.image=${{ steps.login-ecr.outputs.registry }}/${{ inputs.PROJECT }}-${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}   \
             -Djib.to.tags=${{ steps.tags_for_mvn.outputs.tags }}  ${{ inputs.BUILD_ARGS }}
-#            -Djib.to.tags=${{ inputs.VERSION }},latest ${{ inputs.BUILD_ARGS }}
+
+
+
+ 
