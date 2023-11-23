@@ -60,7 +60,7 @@ runs:
   using: "composite"
   steps:
     - name: Set up QEMU
-      uses: docker/setup-qemu-action@v1
+      uses: docker/setup-qemu-action@v3
       if: ${{ inputs.QEMU_SETUP == 'true' }}
 
     - name: setup docker context for buildx
@@ -71,13 +71,10 @@ runs:
       if: ${{ inputs.QEMU_SETUP == 'true' }}
 
     - name: Checkout repo
-      uses: actions/checkout@v3
-
-
-    - uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ inputs.AWS_ACCESS }}
         aws-secret-access-key: ${{ inputs.AWS_SECRET }}
@@ -85,7 +82,7 @@ runs:
 
     - name: Login to Amazon ECR
       id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
+      uses: aws-actions/amazon-ecr-login@v2
 
     - name: Docker meta
       id: meta
@@ -159,7 +156,7 @@ runs:
         java-version: ${{ inputs.JAVA_VERSION }}
 
     - name: Cache mvn packages
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: ~/.m2
         key: ${{ runner.OS }}-mvn-${{ hashFiles('**/pom.xml') }}
@@ -184,7 +181,3 @@ runs:
             -Djib.container.ports=${{ inputs.MAVEN_JIB_PORT }} \
             -Djib.to.image=${{ steps.login-ecr.outputs.registry }}/${{ inputs.PROJECT }}-${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}   \
             -Djib.to.tags=${{ steps.tags_for_mvn.outputs.tags }}  ${{ inputs.BUILD_ARGS }}
-
-
-
- 
