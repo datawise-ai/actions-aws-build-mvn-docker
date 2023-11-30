@@ -58,6 +58,17 @@ inputs:
     required: false
     default: "echo \"nothing to run\""
 
+outputs:
+  tagged_image:
+    description: "tagged image"
+    value: "${{ steps.set_outputs.outputs.tagged_image }}"
+  shaonly:
+    description: "all tags"
+    value: "${{ steps.set_outputs.outputs.shaonly }}"
+  shaimg:
+    description: "all tags"
+    value: "${{ steps.set_outputs.outputs.shaimg }}"
+
 runs:
   using: "composite"
   steps:
@@ -103,6 +114,24 @@ runs:
           type=raw,value={{date 'YYYYMMDD'}}
           type=sha
 
+    - name: Docker meta
+      id: outshaonly
+      uses: docker/metadata-action@v5
+      with:
+        flavor: |
+          latest=false
+        tags: |
+          type=sha
+
+    - name: Docker meta
+      id: outshaimg
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.PROJECT }}-${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}
+        flavor: |
+          latest=false
+        tags: |
+          type=sha
 
     - name: prepare tags for mvn (comma sep)
       id: tags_for_mvn
@@ -151,8 +180,6 @@ runs:
           echo '| TAGS | ${{ steps.tags_for_mvn.outputs.tags }} | '           >> $GITHUB_STEP_SUMMARY
 
 
-
-
     - uses: actions/setup-java@v3
       with:
         distribution: ${{ inputs.JAVA_DISTRIBUTION }}
@@ -184,3 +211,24 @@ runs:
             -Djib.container.ports=${{ inputs.MAVEN_JIB_PORT }} \
             -Djib.to.image=${{ steps.login-ecr.outputs.registry }}/${{ inputs.PROJECT }}-${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}   \
             -Djib.to.tags=${{ steps.tags_for_mvn.outputs.tags }}  ${{ inputs.BUILD_ARGS }}
+
+    - name: set outputs
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: ${{ inputs.PROJECT }}-${{ inputs.APP }}-${{ inputs.SERVICE }}-${{ inputs.INSTANCE }}
+        IMAGE_TAG: ${{ inputs.VERSION }}
+      id: set_outputs
+      shell: bash
+      run: |
+        echo "tagged_image=${{ env.REGISTRY}}/${{ env.REPOSITORY }}:${{ env.IMAGE_TAG }}" >> $GITHUB_OUTPUT
+        echo "shaonly=${{ steps.outshaonly.outputs.tags }}" >> $GITHUB_OUTPUT
+        echo "shaimg=${{ steps.outshaimg.outputs.tags }}" >> $GITHUB_OUTPUT
+
+    - name: print tags
+      shell: bash
+      run: |
+        echo ${{ steps.set_outputs.outputs.tagged_image }}
+        echo shaonly
+        echo ${{ steps.set_outputs.outputs.shaonly }}
+        echo shaimg
+        echo ${{ steps.set_outputs.outputs.shaimg }}
